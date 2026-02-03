@@ -1,39 +1,72 @@
 import express from "express";
 import cors from "cors";
 
+// ROUTES
 import authRoutes from "./routes/auth.routes";
 import userRoutes from "./routes/user.routes";
-import journalRoutes from "./routes/journal.routes";
-import messageRoutes from "./routes/messages.routes"
+import messageRoutes from "./routes/messages.routes";
 import matchRoutes from "./routes/match.routes";
-
-
+import storiesRoutes from "./routes/stories.routes";
+import storyRoutes from "./routes/Mystory.routes";
+import reportsRoutes from "./routes/reports.routes";
+import paymentsRoutes from "./routes/payments.routes";
+import dmRoutes from "./routes/dm.routes";
 
 // initialise DB (crée tables)
 import "./config/database";
 
 export const app = express();
 
-// Middleware JSON
+// =====================
+// MIDDLEWARES
+// =====================
+
+// JSON body
 app.use(express.json());
 
-// CORS
+// CORS (frontend Vite)
 app.use(
   cors({
     origin: "http://localhost:5173",
-    credentials: false,
+    credentials: true,
   })
 );
 
-// Routes
+// =====================
+// ROUTES API
+// =====================
+
+// AUTH
 app.use("/api/auth", authRoutes);
-app.use("/api", userRoutes);
-app.use("/api/journal", journalRoutes);
+
+// USER (⚠️ TRÈS IMPORTANT)
+app.use("/api/user", userRoutes);
+
+// MESSAGES
 app.use("/api/messages", messageRoutes);
-app.use("/api", matchRoutes);
 
+// MATCH
+app.use("/api/match", matchRoutes);
 
-// Healthcheck
+// STORIES
+app.use("/api/stories", storiesRoutes);
+
+// MY STORY
+app.use("/api/mystory", storyRoutes);
+
+// REPORTS
+app.use("/api/reports", reportsRoutes);
+
+// PAYMENTS
+app.use("/api/payments", paymentsRoutes);
+
+// DM
+app.use("/api/dm", dmRoutes);
+
+// =====================
+// HEALTHCHECK
+// =====================
+
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
 });

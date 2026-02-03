@@ -59,7 +59,11 @@ export async function login(req: Request, res: Response) {
 
   const user = db
     .prepare("SELECT * FROM users WHERE email = ? OR username = ?")
-    .get(identifier, identifier);
+    .get(identifier, identifier) as {
+      id: string;
+      username: string;
+      password: string;
+    } | undefined;
 
   if (!user) {
     return res.status(401).json({ error: "Identifiants invalides" });
@@ -67,11 +71,14 @@ export async function login(req: Request, res: Response) {
 
   const ok = await verifyPassword(password, user.password);
 
+  
   if (!ok) {
     return res.status(401).json({ error: "Identifiants invalides" });
   }
 
   const token = signToken({ userId: user.id });
+
+  const userId = req.userId;
 
   res.json({
     token,
@@ -81,3 +88,4 @@ export async function login(req: Request, res: Response) {
     },
   });
 }
+

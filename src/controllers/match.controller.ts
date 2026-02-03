@@ -1,84 +1,82 @@
-import { Request, Response } from "express";
 import { db } from "../config/database";
 
-/**
- * GET /api/match
- * Retourne des profils similaires
- */
-export function getMatches(req: Request, res: Response) {
-  const userId = req.userId; // injecté par middleware auth
+function parseTags(t: string | null): string[] {
+  try { return t ? JSON.parse(t) : []; } catch { return []; }
+}
 
-  if (!userId) {
-    return res.status(401).json({ error: "Non autorisé" });
-  }
+function jaccard(a: string[], b: string[]) {
+  const A = new Set(a);
+  const B = new Set(b);
+  const inter = [...A].filter(x => B.has(x)).length;
+  const union = new Set([...a, ...b]).size || 1;
+  return inter / union;
+}
 
-  // 🔹 récupérer l'histoire de l'utilisateur
-  const myStory = db
-    .prepare(
-      `
-      SELECT tags, situation
-      FROM stories
-      JOIN users ON users.id = stories.user_id
-      WHERE user_id = ? AND shared = 1
-      `
-    )
-    .get(userId);
+function keywordScore(textA: string, textB: string) {
+  const clean = (s: string) =>
+    s.toLowerCase().replace(/[^a-zà-ÿ0-9\s]/g, " ").split(/\s+/).filter(w => w.length >= 4);
 
-  if (!myStory) {
-    return res.json([]);
-  }
+  const A = new Set(clean(textA));
+  const B = new Set(clean(textB));
+  const inter = [...A].filter(x => B.has(x)).length;
+  return Math.min(1, inter / 12); // plafonné
+}
 
-  const myTags: string[] = myStory.tags
-    ? myStory.tags.split(",")
-    : [];
-  const mySituation = myStory.situation;
+export function getMatches(req: any, res: any) {
+  const userId = req.userId;
 
-  // 🔹 récupérer les autres histoires partagées
-  const others = db
-    .prepare(
-      `
-      SELECT
-        stories.id,
-        stories.title,
-        stories.tags,
-        stories.created_at,
-        users.id as userId,
-        users.situation
-      FROM stories
-      JOIN users ON users.id = stories.user_id
-      WHERE stories.shared = 1
-        AND users.id != ?
-      `
-    )
-    .all(userId);
+  // On prend MES histoires publiées (ou brouillons si tu veux)
+  const mine = db.prepare(`
+    SELECT * FROM stories
+    WHERE user_id = ? AND status='published' AND shared=1
+    ORDER BY published_at DESC
+    LIMIT 3
+  `).all(userId);
 
-  const scored = others
-    .map((o: any) => {
-      const tags = o.tags ? o.tags.split(",") : [];
+  if (!mine.length) return res.json([]);
 
-      let score = 0;
-      const commonTags = tags.filter((t: string) =>
-        myTags.includes(t)
-      );
+  const myTags = mine.flatMap((s: any) => parseTags(s.tags));
+  const myText = mine.map((s: any) => `${s.title || ""} ${s.body}`).join(" ");
 
-      score += commonTags.length * 2;
+  // Histoires des autres
+  const others = db.prepare(`
+    SELECT * FROM stories
+    WHERE user_id != ? AND status='published' AND shared=1
+    ORDER BY published_at DESC
+    LIMIT 300
+  `).all(userId);
 
-      if (o.situation && o.situation === mySituation) {
-        score += 3;
-      }
+  // Score par user (un profil = user)
+  const byUser = new Map<string, { userId: string; score: number; common: Set<string>; sample: string }>();
 
-      return {
-        storyId: o.id,
-        title: o.title,
-        commonTags,
-        situation: o.situation,
+  for (const s of others) {
+    const tags = parseTags(s.tags);
+    const common = tags.filter(t => myTags.includes(t));
+    const tagScore = jaccard(myTags, tags);
+    const txtScore = keywordScore(myText, `${s.title || ""} ${s.body}`);
+    const score = 0.7 * tagScore + 0.3 * txtScore;
+
+    const current = byUser.get(s.user_id);
+    if (!current || score > current.score) {
+      byUser.set(s.user_id, {
+        userId: s.user_id,
         score,
-        createdAt: o.created_at,
-      };
-    })
-    .filter((m: any) => m.score > 0)
-    .sort((a: any, b: any) => b.score - a.score)
-    .slice(0, 6);
+        common: new Set(common),
+        sample: s.body.slice(0, 120),
+      });
+    } else {
+      common.forEach(t => current.common.add(t));
+    }
+  }
 
-  res.json(scored);
+  const result = [...byUser.values()]
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 20)
+    .map(r => ({
+      id: r.userId,
+      summary: r.sample,
+      common_tags: [...r.common].slice(0, 5),
+    }));
+
+  res.json(result);
 }

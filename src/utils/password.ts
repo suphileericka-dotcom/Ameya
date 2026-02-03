@@ -10,7 +10,7 @@ export async function hashPassword(password: string): Promise<string> {
 /**
  * Compare un mot de passe brut avec un hash
  */
-export async function comparePassword(
+export async function verifyPassword (
   password: string,
   hash: string
 ): Promise<boolean> {

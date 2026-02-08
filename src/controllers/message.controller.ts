@@ -6,16 +6,23 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 
-// =====================
-// CONFIG
-// =====================
+/* =====================
+   TYPES
+===================== */
 
-const ROOM_TTL_MS = 24 * 60 * 60 * 1000; // 24h
-const uploadDir = path.join(__dirname, "../../uploads/audio");
+type MessageRow = {
+  id: string;
+  room: string;
+  user_id: string;
+  content: string | null;
+  audio_path: string | null;
+  created_at: Date;
+  edited_at: Date | null;
+};
 
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
+type AudioRow = {
+  audio_path: string;
+};
 
 type UploadedAudioFile = {
   filename: string;
@@ -28,9 +35,35 @@ type MulterRequest = Request & {
   file?: UploadedAudioFile;
 };
 
+/* =====================
+   CONFIG
+===================== */
+
+const ROOM_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+const uploadDir = path.join(__dirname, "../../uploads/audio");
+
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+/* =====================
+   MULTER
+===================== */
+
 const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, uploadDir),
-  filename: (_req, file, cb) => {
+  destination: (
+    _req: Request,
+    _file: Express.Multer.File,
+    cb: (error: Error | null, destination: string) => void
+  ): void => {
+    cb(null, uploadDir);
+  },
+
+  filename: (
+    _req: Request,
+    file: Express.Multer.File,
+    cb: (error: Error | null, filename: string) => void
+  ): void => {
     const ext = path.extname(file.originalname || ".webm");
     cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
   },
@@ -38,11 +71,11 @@ const storage = multer.diskStorage({
 
 export const upload = multer({ storage });
 
-// =====================
-// HELPERS
-// =====================
+/* =====================
+   HELPERS
+===================== */
 
-function now() {
+function now(): Date {
   return new Date();
 }
 
@@ -50,10 +83,10 @@ function now() {
  * Purge messages & audios older than 24h
  * ⚠️ simple version (OK en V1, cron plus tard)
  */
-async function purgeOldMessages() {
+async function purgeOldMessages(): Promise<void> {
   const limit = new Date(Date.now() - ROOM_TTL_MS);
 
-  const oldAudios = await db.query(
+  const oldAudios = await db.query<AudioRow>(
     `
     SELECT audio_path
     FROM messages
@@ -66,18 +99,17 @@ async function purgeOldMessages() {
     const full = path.join(uploadDir, a.audio_path);
     try {
       fs.unlinkSync(full);
-    } catch {}
+    } catch {
+      /* ignore */
+    }
   }
 
-  await db.query(
-    `DELETE FROM messages WHERE created_at < $1`,
-    [limit]
-  );
+  await db.query(`DELETE FROM messages WHERE created_at < $1`, [limit]);
 }
 
-// =====================
-// GET /api/messages?room=burnout
-// =====================
+/* =====================
+   GET /api/messages?room=burnout
+===================== */
 
 export async function getMessages(req: Request, res: Response) {
   const room = req.query.room as string;
@@ -87,7 +119,7 @@ export async function getMessages(req: Request, res: Response) {
 
   const limit = new Date(Date.now() - ROOM_TTL_MS);
 
-  const result = await db.query(
+  const result = await db.query<MessageRow>(
     `
     SELECT id, room, user_id, content, audio_path, created_at, edited_at
     FROM messages
@@ -97,7 +129,7 @@ export async function getMessages(req: Request, res: Response) {
     [room, limit]
   );
 
-  const messages = result.rows.map((m) => ({
+  const messages = result.rows.map((m: MessageRow) => ({
     id: m.id,
     room: m.room,
     userId: m.user_id,
@@ -110,9 +142,9 @@ export async function getMessages(req: Request, res: Response) {
   res.json(messages);
 }
 
-// =====================
-// POST /api/messages (texte)
-// =====================
+/* =====================
+   POST /api/messages (texte)
+===================== */
 
 export async function postMessage(req: Request, res: Response) {
   const { room, userId, content } = req.body as {
@@ -143,24 +175,27 @@ export async function postMessage(req: Request, res: Response) {
     userId,
     content: content.trim(),
     audioUrl: null,
-    createdAt: new Date(),
+    createdAt: now(),
     editedAt: null,
   });
 }
 
-// =====================
-// PUT /api/messages/:id
-// =====================
+/* =====================
+   PUT /api/messages/:id
+===================== */
 
 export async function updateMessage(req: Request, res: Response) {
   const { id } = req.params;
-  const { userId, content } = req.body as { userId?: string; content?: string };
+  const { userId, content } = req.body as {
+    userId?: string;
+    content?: string;
+  };
 
   if (!userId || !content?.trim()) {
     return res.status(400).json({ error: "Données manquantes" });
   }
 
-  const result = await db.query(
+  const result = await db.query<{ user_id: string; created_at: Date }>(
     `
     SELECT user_id, created_at
     FROM messages
@@ -175,11 +210,11 @@ export async function updateMessage(req: Request, res: Response) {
     return res.status(403).json({ error: "Action interdite" });
   }
 
-  if (Date.now() - new Date(row.created_at).getTime() > ROOM_TTL_MS) {
+  if (Date.now() - row.created_at.getTime() > ROOM_TTL_MS) {
     return res.status(403).json({ error: "Message expiré (24h)" });
   }
 
-  const editedAt = new Date();
+  const editedAt = now();
 
   await db.query(
     `
@@ -193,9 +228,9 @@ export async function updateMessage(req: Request, res: Response) {
   res.json({ success: true, editedAt });
 }
 
-// =====================
-// DELETE /api/messages/:id
-// =====================
+/* =====================
+   DELETE /api/messages/:id
+===================== */
 
 export async function deleteMessage(req: Request, res: Response) {
   const { id } = req.params;
@@ -205,7 +240,7 @@ export async function deleteMessage(req: Request, res: Response) {
     return res.status(400).json({ error: "userId manquant" });
   }
 
-  const result = await db.query(
+  const result = await db.query<{ user_id: string; audio_path: string | null }>(
     `
     SELECT user_id, audio_path
     FROM messages
@@ -224,21 +259,26 @@ export async function deleteMessage(req: Request, res: Response) {
     const full = path.join(uploadDir, row.audio_path);
     try {
       fs.unlinkSync(full);
-    } catch {}
+    } catch {
+      /* ignore */
+    }
   }
 
   await db.query(`DELETE FROM messages WHERE id = $1`, [id]);
   res.json({ success: true });
 }
 
-// =====================
-// POST /api/messages/audio
-// =====================
+/* =====================
+   POST /api/messages/audio
+===================== */
 
 export const uploadAudio = [
   upload.single("audio"),
   async (req: MulterRequest, res: Response) => {
-    const { room, userId } = req.body as { room?: string; userId?: string };
+    const { room, userId } = req.body as {
+      room?: string;
+      userId?: string;
+    };
 
     if (!room || !userId || !req.file?.filename) {
       return res.status(400).json({ error: "Données manquantes" });
@@ -262,7 +302,7 @@ export const uploadAudio = [
       userId,
       content: null,
       audioUrl: `/uploads/audio/${req.file.filename}`,
-      createdAt: new Date(),
+      createdAt: now(),
       editedAt: null,
     });
   },

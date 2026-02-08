@@ -17,7 +17,6 @@ if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-// Type minimal (propre) pour éviter Express.Multer.File et multer.File
 type UploadedAudioFile = {
   filename: string;
   originalname: string;
@@ -30,18 +29,8 @@ type MulterRequest = Request & {
 };
 
 const storage = multer.diskStorage({
-  destination: (
-    _req: Express.Request,
-    _file: Express.Multer.File,
-    cb: (error: Error | null, destination: string) => void
-  ) => {
-    cb(null, uploadDir);
-  },
-  filename: (
-    _req: Express.Request,
-    file: Express.Multer.File,
-    cb: (error: Error | null, filename: string) => void
-  ) => {
+  destination: (_req, _file, cb) => cb(null, uploadDir),
+  filename: (_req, file, cb) => {
     const ext = path.extname(file.originalname || ".webm");
     cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
   },
@@ -54,51 +43,61 @@ export const upload = multer({ storage });
 // =====================
 
 function now() {
-  return Date.now();
+  return new Date();
 }
 
-function purgeOldMessages() {
-  const limit = now() - ROOM_TTL_MS;
+/**
+ * Purge messages & audios older than 24h
+ * ⚠️ simple version (OK en V1, cron plus tard)
+ */
+async function purgeOldMessages() {
+  const limit = new Date(Date.now() - ROOM_TTL_MS);
 
-  // Supprime aussi les fichiers audio associés
-  const oldAudios = db
-    .prepare(`SELECT audio_path FROM messages WHERE created_at < ? AND audio_path IS NOT NULL`)
-    .all(limit) as { audio_path: string }[];
+  const oldAudios = await db.query(
+    `
+    SELECT audio_path
+    FROM messages
+    WHERE created_at < $1 AND audio_path IS NOT NULL
+    `,
+    [limit]
+  );
 
-  for (const a of oldAudios) {
+  for (const a of oldAudios.rows) {
     const full = path.join(uploadDir, a.audio_path);
     try {
       fs.unlinkSync(full);
     } catch {}
   }
 
-  db.prepare(`DELETE FROM messages WHERE created_at < ?`).run(limit);
+  await db.query(
+    `DELETE FROM messages WHERE created_at < $1`,
+    [limit]
+  );
 }
 
 // =====================
 // GET /api/messages?room=burnout
 // =====================
 
-export function getMessages(req: Request, res: Response) {
+export async function getMessages(req: Request, res: Response) {
   const room = req.query.room as string;
   if (!room) return res.status(400).json({ error: "Room manquante" });
 
-  // purge 24h avant de renvoyer (simple, efficace)
-  purgeOldMessages();
+  await purgeOldMessages();
 
-  const limit = now() - ROOM_TTL_MS;
+  const limit = new Date(Date.now() - ROOM_TTL_MS);
 
-  const rows = db
-    .prepare(
-      `SELECT id, room, user_id, content, audio_path, created_at, edited_at
-       FROM messages
-       WHERE room = ? AND created_at >= ?
-       ORDER BY created_at ASC`
-    )
-    .all(room, limit) as any[];
+  const result = await db.query(
+    `
+    SELECT id, room, user_id, content, audio_path, created_at, edited_at
+    FROM messages
+    WHERE room = $1 AND created_at >= $2
+    ORDER BY created_at ASC
+    `,
+    [room, limit]
+  );
 
-  // Format UNIQUE pour le front (camelCase partout)
-  const messages = rows.map((m) => ({
+  const messages = result.rows.map((m) => ({
     id: m.id,
     room: m.room,
     userId: m.user_id,
@@ -115,7 +114,7 @@ export function getMessages(req: Request, res: Response) {
 // POST /api/messages (texte)
 // =====================
 
-export function postMessage(req: Request, res: Response) {
+export async function postMessage(req: Request, res: Response) {
   const { room, userId, content } = req.body as {
     room?: string;
     userId?: string;
@@ -126,15 +125,17 @@ export function postMessage(req: Request, res: Response) {
     return res.status(400).json({ error: "Champs manquants" });
   }
 
-  purgeOldMessages();
+  await purgeOldMessages();
 
   const id = randomUUID();
-  const createdAt = now();
 
-  db.prepare(
-    `INSERT INTO messages (id, room, user_id, content, created_at)
-     VALUES (?, ?, ?, ?, ?)`
-  ).run(id, room, userId, content.trim(), createdAt);
+  await db.query(
+    `
+    INSERT INTO messages (id, room, user_id, content)
+    VALUES ($1, $2, $3, $4)
+    `,
+    [id, room, userId, content.trim()]
+  );
 
   res.json({
     id,
@@ -142,16 +143,16 @@ export function postMessage(req: Request, res: Response) {
     userId,
     content: content.trim(),
     audioUrl: null,
-    createdAt,
+    createdAt: new Date(),
     editedAt: null,
   });
 }
 
 // =====================
-// PUT /api/messages/:id (sécurisé)
+// PUT /api/messages/:id
 // =====================
 
-export function updateMessage(req: Request, res: Response) {
+export async function updateMessage(req: Request, res: Response) {
   const { id } = req.params;
   const { userId, content } = req.body as { userId?: string; content?: string };
 
@@ -159,32 +160,44 @@ export function updateMessage(req: Request, res: Response) {
     return res.status(400).json({ error: "Données manquantes" });
   }
 
-  
-  const row = db
-    .prepare(`SELECT user_id, created_at FROM messages WHERE id = ?`)
-    .get(id) as { user_id: string; created_at: number } | undefined;
+  const result = await db.query(
+    `
+    SELECT user_id, created_at
+    FROM messages
+    WHERE id = $1
+    `,
+    [id]
+  );
 
+  const row = result.rows[0];
   if (!row) return res.status(404).json({ error: "Message introuvable" });
-  if (row.user_id !== userId) return res.status(403).json({ error: "Action interdite" });
+  if (row.user_id !== userId) {
+    return res.status(403).json({ error: "Action interdite" });
+  }
 
-  // option : empêcher modif au-delà de 24h (cohérent)
-  if (now() - row.created_at > ROOM_TTL_MS) {
+  if (Date.now() - new Date(row.created_at).getTime() > ROOM_TTL_MS) {
     return res.status(403).json({ error: "Message expiré (24h)" });
   }
 
-  const editedAt = now();
+  const editedAt = new Date();
 
-  db.prepare(`UPDATE messages SET content = ?, edited_at = ? WHERE id = ?`)
-    .run(content.trim(), editedAt, id);
+  await db.query(
+    `
+    UPDATE messages
+    SET content = $1, edited_at = $2
+    WHERE id = $3
+    `,
+    [content.trim(), editedAt, id]
+  );
 
   res.json({ success: true, editedAt });
 }
 
 // =====================
-// DELETE /api/messages/:id?userId=xxx (sécurisé)
+// DELETE /api/messages/:id
 // =====================
 
-export function deleteMessage(req: Request, res: Response) {
+export async function deleteMessage(req: Request, res: Response) {
   const { id } = req.params;
   const userId = req.query.userId as string | undefined;
 
@@ -192,14 +205,21 @@ export function deleteMessage(req: Request, res: Response) {
     return res.status(400).json({ error: "userId manquant" });
   }
 
-  const row = db
-    .prepare(`SELECT user_id, audio_path FROM messages WHERE id = ?`)
-    .get(id) as { user_id: string; audio_path: string | null } | undefined;
+  const result = await db.query(
+    `
+    SELECT user_id, audio_path
+    FROM messages
+    WHERE id = $1
+    `,
+    [id]
+  );
 
+  const row = result.rows[0];
   if (!row) return res.status(404).json({ error: "Message introuvable" });
-  if (row.user_id !== userId) return res.status(403).json({ error: "Action interdite" });
+  if (row.user_id !== userId) {
+    return res.status(403).json({ error: "Action interdite" });
+  }
 
-  // supprime fichier audio si besoin
   if (row.audio_path) {
     const full = path.join(uploadDir, row.audio_path);
     try {
@@ -207,32 +227,34 @@ export function deleteMessage(req: Request, res: Response) {
     } catch {}
   }
 
-  db.prepare(`DELETE FROM messages WHERE id = ?`).run(id);
+  await db.query(`DELETE FROM messages WHERE id = $1`, [id]);
   res.json({ success: true });
 }
 
 // =====================
-// POST /api/messages/audio (upload)
+// POST /api/messages/audio
 // =====================
 
 export const uploadAudio = [
   upload.single("audio"),
-  (req: MulterRequest, res: Response) => {
+  async (req: MulterRequest, res: Response) => {
     const { room, userId } = req.body as { room?: string; userId?: string };
 
     if (!room || !userId || !req.file?.filename) {
       return res.status(400).json({ error: "Données manquantes" });
     }
 
-    purgeOldMessages();
+    await purgeOldMessages();
 
     const id = randomUUID();
-    const createdAt = now();
 
-    db.prepare(
-      `INSERT INTO messages (id, room, user_id, audio_path, created_at)
-       VALUES (?, ?, ?, ?, ?)`
-    ).run(id, room, userId, req.file.filename, createdAt);
+    await db.query(
+      `
+      INSERT INTO messages (id, room, user_id, audio_path)
+      VALUES ($1, $2, $3, $4)
+      `,
+      [id, room, userId, req.file.filename]
+    );
 
     res.json({
       id,
@@ -240,9 +262,8 @@ export const uploadAudio = [
       userId,
       content: null,
       audioUrl: `/uploads/audio/${req.file.filename}`,
-      createdAt,
+      createdAt: new Date(),
       editedAt: null,
     });
   },
 ];
-

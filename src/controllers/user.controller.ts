@@ -3,9 +3,10 @@ import bcrypt from "bcrypt";
 import { db } from "../config/database";
 import { AuthedRequest } from "../middleware/auth.middleware";
 
-/**
- * Normalisation user (SQLite → frontend)
- */
+/* =====================
+   HELPERS
+===================== */
+
 function normUser(user: any) {
   return {
     id: user.id,
@@ -22,24 +23,24 @@ function normUser(user: any) {
   };
 }
 
-/**
- * =====================
- * GET /api/user/me
- * =====================
- */
-export function me(req: AuthedRequest, res: Response) {
+/* =====================
+   GET /api/user/me
+===================== */
+export async function me(req: AuthedRequest, res: Response) {
   const userId = req.userId;
   if (!userId) return res.status(401).json({ error: "Non autorisé" });
 
-  const user = db
-    .prepare(`
-      SELECT id, username, email, city, country, situation,
-             language, dark_mode, show_chats, avatar, created_at
-      FROM users
-      WHERE id = ?
-    `)
-    .get(userId);
+  const result = await db.query(
+    `
+    SELECT id, username, email, city, country, situation,
+           language, dark_mode, show_chats, avatar, created_at
+    FROM users
+    WHERE id = $1
+    `,
+    [userId]
+  );
 
+  const user = result.rows[0];
   if (!user) {
     return res.status(404).json({ error: "Utilisateur introuvable" });
   }
@@ -47,13 +48,10 @@ export function me(req: AuthedRequest, res: Response) {
   return res.json(normUser(user));
 }
 
-/**
- * =====================
- * PUT /api/user/me
- * body: { username?, email? }
- * =====================
- */
-export function updateProfile(req: AuthedRequest, res: Response) {
+/* =====================
+   PUT /api/user/me
+===================== */
+export async function updateProfile(req: AuthedRequest, res: Response) {
   const userId = req.userId;
   if (!userId) return res.status(401).json({ error: "Non autorisé" });
 
@@ -76,54 +74,58 @@ export function updateProfile(req: AuthedRequest, res: Response) {
 
   // unicité username
   if (username) {
-    const exists = db
-      .prepare(`SELECT id FROM users WHERE username = ? AND id != ?`)
-      .get(username.trim(), userId);
-    if (exists) {
+    const exists = await db.query(
+      `SELECT 1 FROM users WHERE username = $1 AND id <> $2`,
+      [username.trim(), userId]
+    );
+    if (exists.rowCount) {
       return res.status(409).json({ error: "Nom déjà utilisé" });
     }
   }
 
   // unicité email
   if (email) {
-    const exists = db
-      .prepare(`SELECT id FROM users WHERE email = ? AND id != ?`)
-      .get(email.trim().toLowerCase(), userId);
-    if (exists) {
+    const exists = await db.query(
+      `SELECT 1 FROM users WHERE email = $1 AND id <> $2`,
+      [email.trim().toLowerCase(), userId]
+    );
+    if (exists.rowCount) {
       return res.status(409).json({ error: "Email déjà utilisé" });
     }
   }
 
-  db.prepare(`
+  await db.query(
+    `
     UPDATE users
     SET
-      username = COALESCE(?, username),
-      email = COALESCE(?, email)
-    WHERE id = ?
-  `).run(
-    username ? username.trim() : null,
-    email ? email.trim().toLowerCase() : null,
-    userId
+      username = COALESCE($1, username),
+      email = COALESCE($2, email)
+    WHERE id = $3
+    `,
+    [
+      username ? username.trim() : null,
+      email ? email.trim().toLowerCase() : null,
+      userId,
+    ]
   );
 
-  const updated = db
-    .prepare(`
-      SELECT id, username, email, city, country, situation,
-             language, dark_mode, show_chats, avatar, created_at
-      FROM users WHERE id = ?
-    `)
-    .get(userId);
+  const updated = await db.query(
+    `
+    SELECT id, username, email, city, country, situation,
+           language, dark_mode, show_chats, avatar, created_at
+    FROM users
+    WHERE id = $1
+    `,
+    [userId]
+  );
 
-  return res.json(normUser(updated));
+  return res.json(normUser(updated.rows[0]));
 }
 
-/**
- * =====================
- * PUT /api/user/me/language
- * body: { language }
- * =====================
- */
-export function updateLanguage(req: AuthedRequest, res: Response) {
+/* =====================
+   PUT /api/user/me/language
+===================== */
+export async function updateLanguage(req: AuthedRequest, res: Response) {
   const userId = req.userId;
   if (!userId) return res.status(401).json({ error: "Non autorisé" });
 
@@ -134,46 +136,40 @@ export function updateLanguage(req: AuthedRequest, res: Response) {
     return res.status(400).json({ error: "Langue invalide" });
   }
 
-  db.prepare(`UPDATE users SET language = ? WHERE id = ?`).run(
-    language,
-    userId
+  await db.query(
+    `UPDATE users SET language = $1 WHERE id = $2`,
+    [language, userId]
   );
 
   return res.json({ ok: true, language });
 }
 
-/**
- * =====================
- * PUT /api/user/me/theme
- * body: { dark_mode }
- * =====================
- */
-export function updateTheme(req: AuthedRequest, res: Response) {
+/* =====================
+   PUT /api/user/me/theme
+===================== */
+export async function updateTheme(req: AuthedRequest, res: Response) {
   const userId = req.userId;
   if (!userId) return res.status(401).json({ error: "Non autorisé" });
 
   const { dark_mode } = req.body as { dark_mode?: boolean };
 
   if (typeof dark_mode !== "boolean") {
-    return res
-      .status(400)
-      .json({ error: "dark_mode doit être un booléen" });
+    return res.status(400).json({
+      error: "dark_mode doit être un booléen",
+    });
   }
 
-  db.prepare(`UPDATE users SET dark_mode = ? WHERE id = ?`).run(
-    dark_mode ? 1 : 0,
-    userId
+  await db.query(
+    `UPDATE users SET dark_mode = $1 WHERE id = $2`,
+    [dark_mode, userId]
   );
 
   return res.json({ ok: true, dark_mode });
 }
 
-/**
- * =====================
- * PUT /api/user/me/password
- * body: { oldPassword, newPassword }
- * =====================
- */
+/* =====================
+   PUT /api/user/me/password
+===================== */
 export async function changePassword(req: AuthedRequest, res: Response) {
   const userId = req.userId;
   if (!userId) return res.status(401).json({ error: "Non autorisé" });
@@ -188,40 +184,42 @@ export async function changePassword(req: AuthedRequest, res: Response) {
   }
 
   if (newPassword.length < 8) {
-    return res
-      .status(400)
-      .json({ error: "Mot de passe trop court (8 caractères min)" });
+    return res.status(400).json({
+      error: "Mot de passe trop court (8 caractères min)",
+    });
   }
 
-  const row = db
-    .prepare(`SELECT password FROM users WHERE id = ?`)
-    .get(userId);
+  const result = await db.query(
+    `SELECT password FROM users WHERE id = $1`,
+    [userId]
+  );
 
+  const row = result.rows[0];
   if (!row) {
     return res.status(404).json({ error: "Utilisateur introuvable" });
   }
 
   const ok = await bcrypt.compare(oldPassword, row.password);
   if (!ok) {
-    return res.status(401).json({ error: "Ancien mot de passe incorrect" });
+    return res
+      .status(401)
+      .json({ error: "Ancien mot de passe incorrect" });
   }
 
   const hashed = await bcrypt.hash(newPassword, 10);
-  db.prepare(`UPDATE users SET password = ? WHERE id = ?`).run(
-    hashed,
-    userId
+
+  await db.query(
+    `UPDATE users SET password = $1 WHERE id = $2`,
+    [hashed, userId]
   );
 
   return res.json({ ok: true });
 }
 
-/**
- * =====================
- * POST /api/user/me/avatar
- * multipart/form-data (field "avatar")
- * =====================
- */
-export function uploadAvatar(req: AuthedRequest, res: Response) {
+/* =====================
+   POST /api/user/me/avatar
+===================== */
+export async function uploadAvatar(req: AuthedRequest, res: Response) {
   const userId = req.userId;
   if (!userId) return res.status(401).json({ error: "Non autorisé" });
 
@@ -229,12 +227,11 @@ export function uploadAvatar(req: AuthedRequest, res: Response) {
     return res.status(400).json({ error: "Aucun fichier reçu" });
   }
 
-  // chemin public exposé par express.static("/uploads")
   const publicPath = `/uploads/avatars/${req.file.filename}`;
 
-  db.prepare(`UPDATE users SET avatar = ? WHERE id = ?`).run(
-    publicPath,
-    userId
+  await db.query(
+    `UPDATE users SET avatar = $1 WHERE id = $2`,
+    [publicPath, userId]
   );
 
   return res.json({ ok: true, avatar: publicPath });

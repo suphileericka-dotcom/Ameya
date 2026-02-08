@@ -19,7 +19,6 @@ if (STRIPE_SECRET_KEY) {
   console.warn("Stripe disabled (STRIPE_SECRET_KEY missing)");
 }
 
-
 /* =====================
    CHECKOUT DM
 ===================== */
@@ -31,7 +30,7 @@ export async function createDmCheckoutSession(req: Request, res: Response) {
     });
   }
 
-  const userId = (req as any).userId;
+  const userId = (req as any).userId as string | undefined;
   const targetUserId = req.body?.targetUserId as string | undefined;
 
   if (!userId) {
@@ -42,14 +41,17 @@ export async function createDmCheckoutSession(req: Request, res: Response) {
     return res.status(400).json({ error: "target missing" });
   }
 
-  // vérifie si déjà payé
-  const existing = db
-    .prepare(
-      `SELECT paid FROM dm_unlocks WHERE user_id=? AND target_user_id=?`
-    )
-    .get(userId, targetUserId) as { paid?: number } | undefined;
+  // Vérifie si déjà payé
+  const existing = await db.query(
+    `
+    SELECT paid
+    FROM dm_unlocks
+    WHERE user_id = $1 AND target_user_id = $2
+    `,
+    [userId, targetUserId]
+  );
 
-  if (existing?.paid === 1) {
+  if (existing.rows[0]?.paid === true) {
     return res.json({ alreadyPaid: true });
   }
 
@@ -91,7 +93,6 @@ export async function stripeWebhook(req: Request, res: Response) {
   }
 
   const sig = req.headers["stripe-signature"] as string | undefined;
-
   if (!sig) {
     return res.status(400).send("Missing Stripe signature");
   }
@@ -116,18 +117,24 @@ export async function stripeWebhook(req: Request, res: Response) {
     const targetUserId = session.metadata?.targetUserId;
 
     if (userId && targetUserId) {
-      db.prepare(`
+      await db.query(
+        `
         INSERT INTO dm_unlocks (
           user_id,
           target_user_id,
           paid,
           provider,
-          provider_ref,
-          created_at
-        ) VALUES (?, ?, 1, 'stripe', ?, ?)
-        ON CONFLICT(user_id, target_user_id)
-        DO UPDATE SET paid = 1
-      `).run(userId, targetUserId, session.id, Date.now());
+          provider_ref
+        )
+        VALUES ($1, $2, true, 'stripe', $3)
+        ON CONFLICT (user_id, target_user_id)
+        DO UPDATE SET
+          paid = true,
+          provider = 'stripe',
+          provider_ref = EXCLUDED.provider_ref
+        `,
+        [userId, targetUserId, session.id]
+      );
     }
   }
 

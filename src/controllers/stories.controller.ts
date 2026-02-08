@@ -1,106 +1,140 @@
 import { db } from "../config/database";
-import { randomUUID } from "crypto";
 
-function safeParseTags(text: string | null): string[] {
-  try { return text ? JSON.parse(text) : []; } catch { return []; }
+/* =====================
+   TYPES
+===================== */
+
+type StoryListRow = {
+  id: string;
+  title: string | null;
+  body: string;
+  tags: any;
+  user_id: string;
+  likes: number | string;
+  created_at: Date;
+};
+
+/* =====================
+   HELPERS
+===================== */
+
+function safeParseTags(tags: any): string[] {
+  if (!tags) return [];
+  if (Array.isArray(tags)) return tags;
+  try {
+    return JSON.parse(tags);
+  } catch {
+    return [];
+  }
 }
 
-export function listStories(req: any, res: any) {
+/* =====================
+   LIST STORIES
+===================== */
+
+export async function listStories(req: any, res: any) {
   const q = String(req.query.q || "").trim();
   const tag = String(req.query.tag || "").trim().replace(/^#/, "");
 
-  // facultatif : si token, ton requireAuth n'est pas appelé ici.
-  // On laisse "mine" côté front avec localStorage userId.
-  // Mais si tu veux sécuriser : fais une version /api/stories/me en auth.
-  
-  // Base query = published only
-  // Search combinée: FTS si dispo, sinon LIKE fallback
-  let rows: any[] = [];
+  let result;
 
-  try {
-    if (q || tag) {
-      const ftsQueryParts: string[] = [];
-      if (q) ftsQueryParts.push(q);
-      if (tag) ftsQueryParts.push(tag);
+  if (q || tag) {
+    const search = [q, tag].filter(Boolean).join(" ");
 
-      const ftsQuery = ftsQueryParts.join(" ");
-
-      rows = db.prepare(`
-        SELECT s.*,
-          (SELECT COUNT(*) FROM story_likes l WHERE l.story_id = s.id) AS likes
-        FROM stories s
-        JOIN stories_fts f ON f.id = s.id
-        WHERE s.status = 'published'
-          AND s.shared = 1
-          AND stories_fts MATCH ?
-        ORDER BY s.published_at DESC
-        LIMIT 200
-      `).all(ftsQuery);
-    } else {
-      rows = db.prepare(`
-        SELECT s.*,
-          (SELECT COUNT(*) FROM story_likes l WHERE l.story_id = s.id) AS likes
-        FROM stories s
-        WHERE s.status = 'published'
-          AND s.shared = 1
-        ORDER BY s.published_at DESC
-        LIMIT 200
-      `).all();
-    }
-
-    // Filter tag côté SQL si tag seul (FTS tags_text marche déjà, mais on garde le filtre)
-    if (tag) {
-      rows = rows.filter(r => safeParseTags(r.tags).includes(tag));
-    }
-  } catch {
-    // Fallback si pas FTS
-    const like = `%${q}%`;
-    rows = db.prepare(`
+    result = await db.query<StoryListRow>(
+      `
       SELECT s.*,
-        (SELECT COUNT(*) FROM story_likes l WHERE l.story_id = s.id) AS likes
+        (
+          SELECT COUNT(*) FROM story_likes l
+          WHERE l.story_id = s.id
+        ) AS likes
       FROM stories s
-      WHERE s.status='published' AND s.shared=1
-        AND (? = '' OR s.title LIKE ? OR s.body LIKE ? OR s.tags LIKE ?)
+      WHERE s.status = 'published'
+        AND s.shared = true
+        AND s.search @@ plainto_tsquery('simple', $1)
       ORDER BY s.published_at DESC
       LIMIT 200
-    `).all(q, like, like, like);
-
-    if (tag) rows = rows.filter(r => safeParseTags(r.tags).includes(tag));
+      `,
+      [search]
+    );
+  } else {
+    result = await db.query<StoryListRow>(
+      `
+      SELECT s.*,
+        (
+          SELECT COUNT(*) FROM story_likes l
+          WHERE l.story_id = s.id
+        ) AS likes
+      FROM stories s
+      WHERE s.status = 'published'
+        AND s.shared = true
+      ORDER BY s.published_at DESC
+      LIMIT 200
+      `
+    );
   }
 
-  res.json(rows.map(r => ({
-    id: r.id,
-    title: r.title,
-    body: r.body,
-    tags: safeParseTags(r.tags),
-    user_id: r.user_id,
-    likes: r.likes ?? 0,
-    created_at: r.created_at,
-  })));
+  let rows = result.rows as StoryListRow[];
+
+  // Filtre tags (JSONB) côté Node
+  if (tag) {
+    rows = rows.filter((r: StoryListRow) =>
+      safeParseTags(r.tags).includes(tag)
+    );
+  }
+
+  res.json(
+    rows.map((r: StoryListRow) => ({
+      id: r.id,
+      title: r.title,
+      body: r.body,
+      tags: safeParseTags(r.tags),
+      user_id: r.user_id,
+      likes: Number(r.likes || 0),
+      created_at: r.created_at,
+    }))
+  );
 }
 
-export function likeStory(req: any, res: any) {
-  const userId = req.userId;
-  const storyId = req.params.id;
-  const now = Date.now();
+/* =====================
+   LIKE STORY
+===================== */
 
-  try {
-    db.prepare(`
-      INSERT INTO story_likes(story_id, user_id, created_at)
-      VALUES (?, ?, ?)
-    `).run(storyId, userId, now);
-  } catch {}
+export async function likeStory(req: any, res: any) {
+  const userId = req.userId as string;
+  const storyId = req.params.id as string;
+
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+  await db.query(
+    `
+    INSERT INTO story_likes (story_id, user_id)
+    VALUES ($1, $2)
+    ON CONFLICT (story_id, user_id) DO NOTHING
+    `,
+    [storyId, userId]
+  );
 
   res.json({ ok: true });
 }
 
-export function unlikeStory(req: any, res: any) {
-  const userId = req.userId;
-  const storyId = req.params.id;
+/* =====================
+   UNLIKE STORY
+===================== */
 
-  db.prepare(`
-    DELETE FROM story_likes WHERE story_id=? AND user_id=?
-  `).run(storyId, userId);
+export async function unlikeStory(req: any, res: any) {
+  const userId = req.userId as string;
+  const storyId = req.params.id as string;
+
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+  await db.query(
+    `
+    DELETE FROM story_likes
+    WHERE story_id = $1 AND user_id = $2
+    `,
+    [storyId, userId]
+  );
 
   res.json({ ok: true });
 }

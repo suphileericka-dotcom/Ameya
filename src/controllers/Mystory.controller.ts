@@ -3,9 +3,26 @@ import { randomUUID } from "crypto";
 import { AuthedRequest } from "../middleware/auth.middleware";
 import { Response } from "express";
 
-function parseTags(tags: string | null): string[] {
+/* =====================
+   TYPES
+===================== */
+
+type DraftRow = {
+  id: string;
+  title: string;
+  body: string;
+  tags: any;
+};
+
+/* =====================
+   HELPERS
+===================== */
+
+function parseTags(tags: any): string[] {
+  if (!tags) return [];
+  if (Array.isArray(tags)) return tags;
   try {
-    return tags ? JSON.parse(tags) : [];
+    return JSON.parse(tags);
   } catch {
     return [];
   }
@@ -14,44 +31,59 @@ function parseTags(tags: string | null): string[] {
 /* =====================
    SAVE / UPDATE DRAFT
 ===================== */
-export function saveDraft(req: AuthedRequest, res: Response) {
+export async function saveDraft(req: AuthedRequest, res: Response) {
   const userId = req.userId;
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
-  const { id, title, body, tags } = req.body;
+  const { id, title, body, tags } = req.body as {
+    id?: string;
+    title?: string;
+    body?: string;
+    tags?: string[];
+  };
 
   if (!body || body.trim().length < 30) {
     return res.status(400).json({ error: "Body too short" });
   }
 
-  const now = Date.now();
   const safeTitle = title?.trim() || "Mon histoire";
-  const tagsJson = JSON.stringify(tags || []);
+  const tagsJson = tags ?? [];
 
-  // 🔁 UPDATE EXISTING DRAFT
+  /* ========= UPDATE EXISTING DRAFT ========= */
   if (id) {
-    const result = db.prepare(`
+    const result = await db.query(
+      `
       UPDATE stories
-      SET title = ?, body = ?, tags = ?, updated_at = ?
-      WHERE id = ? AND user_id = ? AND status = 'draft'
-    `).run(safeTitle, body.trim(), tagsJson, now, id, userId);
+      SET title = $1,
+          body = $2,
+          tags = $3,
+          updated_at = NOW()
+      WHERE id = $4
+        AND user_id = $5
+        AND status = 'draft'
+      `,
+      [safeTitle, body.trim(), tagsJson, id, userId]
+    );
 
-    if (result.changes === 0) {
+    if (result.rowCount === 0) {
       return res.status(404).json({ error: "Draft not found" });
     }
 
     return res.json({ ok: true, id });
   }
 
-  // 🆕 CREATE NEW DRAFT
+  /* ========= CREATE NEW DRAFT ========= */
   const newId = randomUUID();
 
-  db.prepare(`
+  await db.query(
+    `
     INSERT INTO stories (
-      id, user_id, title, body, tags,
-      status, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, 'draft', ?, ?)
-  `).run(newId, userId, safeTitle, body.trim(), tagsJson, now, now);
+      id, user_id, title, body, tags, status
+    )
+    VALUES ($1, $2, $3, $4, $5, 'draft')
+    `,
+    [newId, userId, safeTitle, body.trim(), tagsJson]
+  );
 
   res.json({ ok: true, id: newId });
 }
@@ -59,19 +91,23 @@ export function saveDraft(req: AuthedRequest, res: Response) {
 /* =====================
    GET MY DRAFTS
 ===================== */
-export function getMyDrafts(req: AuthedRequest, res: Response) {
+export async function getMyDrafts(req: AuthedRequest, res: Response) {
   const userId = req.userId;
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
-  const rows = db.prepare(`
-    SELECT *
+  const result = await db.query<DraftRow>(
+    `
+    SELECT id, title, body, tags
     FROM stories
-    WHERE user_id = ? AND status = 'draft'
+    WHERE user_id = $1
+      AND status = 'draft'
     ORDER BY updated_at DESC, created_at DESC
-  `).all(userId);
+    `,
+    [userId]
+  );
 
   res.json(
-    rows.map((row: any) => ({
+    result.rows.map((row: DraftRow) => ({
       id: row.id,
       title: row.title,
       body: row.body,
@@ -83,18 +119,23 @@ export function getMyDrafts(req: AuthedRequest, res: Response) {
 /* =====================
    DELETE DRAFT
 ===================== */
-export function deleteDraft(req: AuthedRequest, res: Response) {
+export async function deleteDraft(req: AuthedRequest, res: Response) {
   const userId = req.userId;
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
   const { id } = req.params;
 
-  const result = db.prepare(`
+  const result = await db.query(
+    `
     DELETE FROM stories
-    WHERE id = ? AND user_id = ? AND status = 'draft'
-  `).run(id, userId);
+    WHERE id = $1
+      AND user_id = $2
+      AND status = 'draft'
+    `,
+    [id, userId]
+  );
 
-  if (result.changes === 0) {
+  if (result.rowCount === 0) {
     return res.status(404).json({ error: "Draft not found" });
   }
 
@@ -104,23 +145,27 @@ export function deleteDraft(req: AuthedRequest, res: Response) {
 /* =====================
    PUBLISH STORY
 ===================== */
-export function publishStory(req: AuthedRequest, res: Response) {
+export async function publishStory(req: AuthedRequest, res: Response) {
   const userId = req.userId;
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
   const { id } = req.params;
-  const now = Date.now();
 
-  const result = db.prepare(`
+  const result = await db.query(
+    `
     UPDATE stories
     SET status = 'published',
-        published_at = ?,
-        updated_at = ?,
-        shared = 1
-    WHERE id = ? AND user_id = ? AND status = 'draft'
-  `).run(now, now, id, userId);
+        published_at = NOW(),
+        updated_at = NOW(),
+        shared = true
+    WHERE id = $1
+      AND user_id = $2
+      AND status = 'draft'
+    `,
+    [id, userId]
+  );
 
-  if (result.changes === 0) {
+  if (result.rowCount === 0) {
     return res.status(404).json({ error: "Draft not found" });
   }
 

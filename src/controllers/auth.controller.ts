@@ -14,34 +14,38 @@ export async function register(req: Request, res: Response) {
     return res.status(400).json({ error: "Champs requis manquants" });
   }
 
-  const existing = db
-    .prepare("SELECT id FROM users WHERE email = ? OR username = ?")
-    .get(email, username);
+  // Check existing user
+  const existing = await db.query(
+    `SELECT id FROM users WHERE email = $1 OR username = $2`,
+    [email, username]
+  );
 
-  if (existing) {
+  if (existing.rowCount && existing.rowCount > 0) {
     return res.status(409).json({ error: "Utilisateur déjà existant" });
   }
 
   const hashed = await hashPassword(password);
   const id = randomUUID();
 
-  db.prepare(`
-    INSERT INTO users (id, username, email, password, city, country, situation, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    id,
-    username,
-    email,
-    hashed,
-    city ?? null,
-    country ?? null,
-    situation ?? null,
-    Date.now()
+  await db.query(
+    `
+    INSERT INTO users (id, username, email, password, city, country, situation)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `,
+    [
+      id,
+      username,
+      email,
+      hashed,
+      city ?? null,
+      country ?? null,
+      situation ?? null,
+    ]
   );
 
   const token = signToken({ userId: id });
 
-  res.json({
+  res.status(201).json({
     token,
     user: { id, username },
   });
@@ -57,28 +61,27 @@ export async function login(req: Request, res: Response) {
     return res.status(400).json({ error: "Champs manquants" });
   }
 
-  const user = db
-    .prepare("SELECT * FROM users WHERE email = ? OR username = ?")
-    .get(identifier, identifier) as {
-      id: string;
-      username: string;
-      password: string;
-    } | undefined;
+  const result = await db.query(
+    `
+    SELECT id, username, password
+    FROM users
+    WHERE email = $1 OR username = $1
+    `,
+    [identifier]
+  );
 
-  if (!user) {
+  if (result.rowCount === 0) {
     return res.status(401).json({ error: "Identifiants invalides" });
   }
 
-  const ok = await verifyPassword(password, user.password);
+  const user = result.rows[0];
 
-  
+  const ok = await verifyPassword(password, user.password);
   if (!ok) {
     return res.status(401).json({ error: "Identifiants invalides" });
   }
 
   const token = signToken({ userId: user.id });
-
-  const userId = req.userId;
 
   res.json({
     token,
@@ -88,4 +91,3 @@ export async function login(req: Request, res: Response) {
     },
   });
 }
-

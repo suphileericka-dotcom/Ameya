@@ -7,14 +7,14 @@ import fs from "fs";
    UTILS
 ===================================================== */
 
-function ensureDir(dir: string) {
+function ensureDir(dir: string): void {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
 }
 
 /* =====================================================
-   AVATAR UPLOAD (EXISTANT — INCHANGÉ)
+   AVATAR UPLOAD
 ===================================================== */
 
 const avatarDir = path.resolve(__dirname, "../../uploads/avatars");
@@ -24,16 +24,16 @@ const avatarStorage = multer.diskStorage({
   destination: (
     _req: Request,
     _file: Express.Multer.File,
-    cb
-  ) => {
+    cb: (error: Error | null, destination: string) => void
+  ): void => {
     cb(null, avatarDir);
   },
 
   filename: (
     _req: Request,
     file: Express.Multer.File,
-    cb
-  ) => {
+    cb: (error: Error | null, filename: string) => void
+  ): void => {
     const ext = path.extname(file.originalname).toLowerCase() || ".jpg";
     const filename = `avatar-${Date.now()}-${Math.random()
       .toString(16)
@@ -46,7 +46,7 @@ function avatarFileFilter(
   _req: Request,
   file: Express.Multer.File,
   cb: (error: Error | null, acceptFile: boolean) => void
-) {
+): void {
   const allowed = ["image/jpeg", "image/png", "image/webp"];
 
   if (!allowed.includes(file.mimetype)) {
@@ -66,7 +66,7 @@ export const uploadAvatarMulter = multer({
 });
 
 /* =====================================================
-   VOICE UPLOAD (NOUVEAU — TEMPORAIRE)
+   VOICE UPLOAD (TEMPORAIRE)
 ===================================================== */
 
 const voiceTmpDir = path.resolve(__dirname, "../../tmp/voice");
@@ -76,16 +76,16 @@ const voiceStorage = multer.diskStorage({
   destination: (
     _req: Request,
     _file: Express.Multer.File,
-    cb
-  ) => {
+    cb: (error: Error | null, destination: string) => void
+  ): void => {
     cb(null, voiceTmpDir);
   },
 
   filename: (
     _req: Request,
     file: Express.Multer.File,
-    cb
-  ) => {
+    cb: (error: Error | null, filename: string) => void
+  ): void => {
     const ext =
       path.extname(file.originalname).toLowerCase() || ".webm";
 
@@ -101,7 +101,7 @@ function voiceFileFilter(
   _req: Request,
   file: Express.Multer.File,
   cb: (error: Error | null, acceptFile: boolean) => void
-) {
+): void {
   const allowed = [
     "audio/webm",
     "audio/wav",

@@ -3,3 +3,18 @@
 .env.production
 node_modules/
 dist/
+
+# Node
+node_modules/
+
+# Env
+.env
+
+# SQLite / local data
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# OS
+.DS_Store

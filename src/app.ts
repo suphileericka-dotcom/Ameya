@@ -12,7 +12,7 @@ import reportsRoutes from "./routes/reports.routes";
 import paymentsRoutes from "./routes/payments.routes";
 import dmRoutes from "./routes/dm.routes";
 
-// initialise DB (crée tables)
+// init DB (dotenv déjà chargé depuis server.ts)
 import "./config/database";
 
 export const app = express();
@@ -24,10 +24,13 @@ export const app = express();
 // JSON body
 app.use(express.json());
 
-// CORS (frontend Vite)
+// CORS DEV + PROD
 app.use(
   cors({
-    origin: "http://localhost:5173",
+    origin: [
+      "http://localhost:5173",
+      "https://projet-wine.vercel.app",
+    ],
     credentials: true,
   })
 );
@@ -36,31 +39,14 @@ app.use(
 // ROUTES API
 // =====================
 
-// AUTH
 app.use("/api/auth", authRoutes);
-
-// USER (⚠️ TRÈS IMPORTANT)
 app.use("/api/user", userRoutes);
-
-// MESSAGES
 app.use("/api/messages", messageRoutes);
-
-// MATCH
 app.use("/api/match", matchRoutes);
-
-// STORIES
 app.use("/api/stories", storiesRoutes);
-
-// MY STORY
 app.use("/api/mystory", storyRoutes);
-
-// REPORTS
 app.use("/api/reports", reportsRoutes);
-
-// PAYMENTS
 app.use("/api/payments", paymentsRoutes);
-
-// DM
 app.use("/api/dm", dmRoutes);
 
 // =====================

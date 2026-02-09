@@ -1,6 +1,13 @@
+// =====================
+// ENV (DOIT ÊTRE EN PREMIER)
+// =====================
+import "dotenv/config";
+
+// =====================
+// IMPORTS
+// =====================
 import express from "express";
 import path from "path";
-import dotenv from "dotenv";
 
 import { app } from "./app";
 import { env } from "./config/env";
@@ -8,9 +15,7 @@ import { env } from "./config/env";
 import translateRoutes from "./routes/translate.routes";
 import userRoutes from "./routes/user.routes";
 import paymentRoutes from "./routes/payments.routes";
-import voiceRoutes from "./routes/voice.routes"; //  VOICE IA
-
-dotenv.config();
+import voiceRoutes from "./routes/voice.routes"; // VOICE IA
 
 // =====================
 // MIDDLEWARES GLOBAUX
@@ -41,11 +46,10 @@ app.use("/api/user", userRoutes);
 // TRANSLATE
 app.use("/api/translate", translateRoutes);
 
-//  VOICE IA ANONYME (NOUVEAU)
+// VOICE IA ANONYME
 app.use("/api/voice", voiceRoutes);
 
-
-
+// PAYMENTS WEBHOOK (RAW)
 app.use(
   "/api/payments/webhook",
   express.raw({ type: "application/json" }),
@@ -57,5 +61,5 @@ app.use(
 // =====================
 
 app.listen(env.port, () => {
-  console.log(` Backend running on http://localhost:${env.port}`);
+  console.log(`✅ Backend running on port ${env.port}`);
 });

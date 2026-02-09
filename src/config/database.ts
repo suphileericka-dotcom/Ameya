@@ -1,9 +1,14 @@
 import { Pool } from "pg";
 
+const databaseUrl = process.env.DATABASE_URL;
+
+if (!databaseUrl) {
+  throw new Error("DATABASE_URL manquant dans les variables d’environnement");
+}
+
 export const db = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: `${databaseUrl}?sslmode=require&uselibpqcompat=true`,
   ssl: { rejectUnauthorized: false },
-  family: 4, // force IPv4 (important sur Railway / Render)
 });
 
 // =====================
@@ -14,10 +19,6 @@ db.query("SELECT 1")
     console.log(" PostgreSQL connected");
   })
   .catch((err: unknown) => {
-    if (err instanceof Error) {
-      console.error(" DB connection error:", err.message);
-    } else {
-      console.error("DB connection error:", err);
-    }
-    process.exit(1); //  IMPORTANT : stoppe le conteneur si DB KO
+    console.error(" DB connection error:", err);
+    process.exit(1);
   });

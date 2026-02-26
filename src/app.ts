@@ -39,15 +39,15 @@ app.use(
 // ROUTES API
 // =====================
 
-app.use("/api/auth", authRoutes);
-app.use("/api/user", userRoutes);
-app.use("/api/messages", messageRoutes);
-app.use("/api/match", matchRoutes);
-app.use("/api/stories", storiesRoutes);
-app.use("/api/mystory", storyRoutes);
-app.use("/api/reports", reportsRoutes);
-app.use("/api/payments", paymentsRoutes);
-app.use("/api/dm", dmRoutes);
+app.use("/auth", authRoutes);
+app.use("/user", userRoutes);
+app.use("/messages", messageRoutes);
+app.use("/match", matchRoutes);
+app.use("/stories", storiesRoutes);
+app.use("/mystory", storyRoutes);
+app.use("/reports", reportsRoutes);
+app.use("/payments", paymentsRoutes);
+app.use("/dm", dmRoutes);
 
 // =====================
 // HEALTHCHECK

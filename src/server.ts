@@ -41,17 +41,17 @@ app.use(
 // =====================
 
 // USERS
-app.use("/user", userRoutes);
+app.use("/api/user", userRoutes);
 
 // TRANSLATE
-app.use("/translate", translateRoutes);
+app.use("/api/translate", translateRoutes);
 
 // VOICE IA ANONYME
-app.use("/voice", voiceRoutes);
+app.use("/api/voice", voiceRoutes);
 
 // PAYMENTS WEBHOOK (RAW)
 app.use(
-  "/payments/webhook",
+  "/api/payments/webhook",
   express.raw({ type: "application/json" }),
   paymentRoutes
 );

@@ -15,9 +15,5 @@ export const db = new Pool({
 // TEST CONNEXION DB
 // =====================
 db.query("SELECT 1")
-  .then(() => {
-    console.log(" PostgreSQL connected");
-  })
-  .catch((err: unknown) => {
-  console.error("DB connection error:", err);
-});
+  .then(() => console.log(" PostgreSQL connected"))
+  .catch((err) => console.error(" DB connection error:", err));

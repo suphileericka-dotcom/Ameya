@@ -19,6 +19,5 @@ db.query("SELECT 1")
     console.log(" PostgreSQL connected");
   })
   .catch((err: unknown) => {
-    console.error(" DB connection error:", err);
-    process.exit(1);
-  });
+  console.error("DB connection error:", err);
+});

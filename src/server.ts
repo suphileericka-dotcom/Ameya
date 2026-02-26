@@ -60,6 +60,8 @@ app.use(
 // SERVER START
 // =====================
 
-app.listen(env.port, () => {
-  console.log(`✅ Backend running on port ${env.port}`);
-});
+if (process.env.NODE_ENV !== "production") {
+  app.listen(env.port, () => {
+    console.log(`Backend running on port ${env.port}`);
+  });
+}

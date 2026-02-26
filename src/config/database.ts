@@ -7,11 +7,18 @@ if (!databaseUrl) {
 }
 
 export const db = new Pool({
-  connectionString: databaseUrl,
+  connectionString: `${databaseUrl}?sslmode=require&uselibpqcompat=true`,
   ssl: { rejectUnauthorized: false },
 });
 
-// Test connexion
+// =====================
+// TEST CONNEXION DB
+// =====================
 db.query("SELECT 1")
-  .then(() => console.log(" PostgreSQL connected"))
-  .catch((err) => console.error(" DB connection error:", err));
+  .then(() => {
+    console.log(" PostgreSQL connected");
+  })
+  .catch((err: unknown) => {
+    console.error(" DB connection error:", err);
+    process.exit(1);
+  });

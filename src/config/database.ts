@@ -7,10 +7,13 @@ if (!databaseUrl) {
 }
 
 export const db = new Pool({
-  connectionString: `${databaseUrl}?sslmode=require&uselibpqcompat=true`,
+  host: "db.djixjstkixsloazjiztk.supabase.co",
+  port: 5432,
+  user: "postgres",
+  password: "KPtAL185yLyj6nB6",
+  database: "postgres",
   ssl: { rejectUnauthorized: false },
 });
-
 // =====================
 // TEST CONNEXION DB
 // =====================

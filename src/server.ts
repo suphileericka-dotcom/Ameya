@@ -60,6 +60,8 @@ app.use(
 // SERVER START
 // =====================
 
-app.listen(env.port, () => {
-  console.log(`Backend running on port ${env.port}`);
+const PORT = process.env.PORT || 8000;
+
+app.listen(PORT, () => {
+  console.log(`Backend running on port ${PORT}`);
 });

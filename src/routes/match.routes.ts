@@ -5,6 +5,6 @@ import { requireAuth } from "../middleware/auth.middleware";
 const router = Router();
 
 // 🔐 protégé par JWT
-router.get("/match", requireAuth, getMatches);
+router.get("/", requireAuth, getMatches);
 
 export default router;

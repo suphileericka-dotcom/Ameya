@@ -11,7 +11,7 @@ import {
 const router = Router();
 
 router.post("/", requireAuth, saveDraft);
-router.get("/drafts", requireAuth, getMyDrafts);
+router.get("/me", requireAuth, getMyDrafts);
 router.delete("/:id", requireAuth, deleteDraft);
 router.put("/:id/publish", requireAuth, publishStory);
 

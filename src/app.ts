@@ -12,64 +12,21 @@ import reportsRoutes from "./routes/reports.routes";
 import paymentsRoutes from "./routes/payments.routes";
 import dmRoutes from "./routes/dm.routes";
 
-// init DB
 import "./config/database";
 
 export const app = express();
 
-/* =====================
-   MIDDLEWARES
-===================== */
-
 app.use(express.json());
 
-/* =====================
-   CORS CONFIG SAFE
-===================== */
-
-const allowedOrigins = [
-  "http://localhost:5173",
-  "https://projet-azure.vercel.app",
-];
-
+//  CORS ULTRA SIMPLE ET STABLE
 app.use(
   cors({
-    origin: (
-      origin: string | undefined,
-      callback: (err: Error | null, allow?: boolean) => void
-    ) => {
-      // Autorise requêtes serveur (Postman, curl)
-      if (!origin) {
-        callback(null, true);
-        return;
-      }
-
-      // Autorise localhost et domaine principal
-      if (allowedOrigins.includes(origin)) {
-        callback(null, true);
-        return;
-      }
-
-      // Autorise toutes les previews Vercel
-      if (origin.endsWith(".vercel.app")) {
-        callback(null, true);
-        return;
-      }
-
-      callback(new Error("Not allowed by CORS"));
-    },
+    origin: true,
     credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
-// Gestion explicite du preflight
-app.options("*", cors());
-
-/* =====================
-   ROUTES API
-===================== */
+/* ROUTES */
 
 app.use("/api/auth", authRoutes);
 app.use("/api/user", userRoutes);
@@ -80,10 +37,6 @@ app.use("/api/mystory", storyRoutes);
 app.use("/api/reports", reportsRoutes);
 app.use("/api/payments", paymentsRoutes);
 app.use("/api/dm", dmRoutes);
-
-/* =====================
-   HEALTHCHECK
-===================== */
 
 app.get("/health", (_req: Request, res: Response) => {
   res.json({ ok: true });

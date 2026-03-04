@@ -17,14 +17,40 @@ import "./config/database";
 
 export const app = express();
 
+/* =====================
+   MIDDLEWARES
+===================== */
+
 app.use(express.json());
+
+/* =====================
+   CORS
+===================== */
+
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://projet-one-pi.vercel.app",
+];
 
 app.use(
   cors({
-    origin: ["http://localhost:5173", "https://projet-one-pi.vercel.app"],
+    origin: (
+      origin: string | undefined,
+      callback: (err: Error | null, allow?: boolean) => void
+    ) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("CORS not allowed"));
+      }
+    },
     credentials: true,
   })
 );
+
+/* =====================
+   ROUTES
+===================== */
 
 app.use("/api/auth", authRoutes);
 app.use("/api/user", userRoutes);
@@ -35,6 +61,10 @@ app.use("/api/mystory", storyRoutes);
 app.use("/api/reports", reportsRoutes);
 app.use("/api/payments", paymentsRoutes);
 app.use("/api/dm", dmRoutes);
+
+/* =====================
+   HEALTHCHECK
+===================== */
 
 app.get("/health", (_req: Request, res: Response) => {
   res.json({ ok: true });

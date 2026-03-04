@@ -1,7 +1,8 @@
+import "dotenv/config";
+
 import express, { Request, Response } from "express";
 import cors from "cors";
 
-// ROUTES
 import authRoutes from "./routes/auth.routes";
 import userRoutes from "./routes/user.routes";
 import messageRoutes from "./routes/messages.routes";
@@ -18,15 +19,12 @@ export const app = express();
 
 app.use(express.json());
 
-//  CORS ULTRA SIMPLE ET STABLE
 app.use(
   cors({
-    origin: true,
+    origin: ["http://localhost:5173", "https://projet-one-pi.vercel.app"],
     credentials: true,
   })
 );
-
-/* ROUTES */
 
 app.use("/api/auth", authRoutes);
 app.use("/api/user", userRoutes);
